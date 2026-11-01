@@ -388,6 +388,9 @@ _SCHEMA_TYPES = {
 }
 
 
+_COOKIE_SCHEMA_STRIP = frozenset({"$schema", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"})
+
+
 def _cookie_ui_schema(schema: Any) -> Any:
     if not isinstance(schema, dict):
         return schema
@@ -409,6 +412,8 @@ def _cookie_ui_schema(schema: Any) -> Any:
 
     for key, value in schema.items():
         if key == "type":
+            continue
+        if key in _COOKIE_SCHEMA_STRIP:
             continue
         if key == "properties" and isinstance(value, dict):
             out[key] = [{"key": name, "value": _cookie_ui_schema(child)}
