@@ -272,6 +272,41 @@ def is_express_auth_or_billing_error(e: Exception, err_code: int) -> bool:
     ))
 
 
+_GEMINI_SCHEMA_STRIP = frozenset({"exclusiveMinimum", "exclusiveMaximum", "multipleOf"})
+_GEMINI_SCHEMA_KEY_MAP = {
+    "minItems": "min_items",
+    "maxItems": "max_items",
+    "minLength": "min_length",
+    "maxLength": "max_length",
+    "minProperties": "min_properties",
+    "maxProperties": "max_properties",
+    "anyOf": "any_of",
+    "allOf": "all_of",
+    "additionalProperties": "additional_properties",
+    "propertyOrder": "property_order",
+}
+
+
+def _sanitize_gemini_schema(schema: Any) -> Any:
+    """把 OpenAI 风格的工具参数 schema 递归清洗成 Google Schema 可接受形态：
+    去掉 Gemini 不认的 exclusiveMinimum/exclusiveMaximum/multipleOf，并把
+    camelCase 字段转成 Google 用的 snake_case（minItems→min_items 等）。
+    对干净 schema 是无操作，不影响既有行为。"""
+    if isinstance(schema, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, val in schema.items():
+            if key == "$schema":
+                continue
+            if key in _GEMINI_SCHEMA_STRIP:
+                continue
+            nkey = _GEMINI_SCHEMA_KEY_MAP.get(key, key)
+            cleaned[nkey] = _sanitize_gemini_schema(val)
+        return cleaned
+    if isinstance(schema, list):
+        return [_sanitize_gemini_schema(item) for item in schema]
+    return schema
+
+
 def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
     config: Dict[str, Any] = {}
 
@@ -368,9 +403,8 @@ def create_generation_config(request: OpenAIRequest) -> Dict[str, Any]:
                         "description": func_data.get("description"),
                     }
                     parameters = func_data.get("parameters")
-                    if isinstance(parameters, dict) and "$schema" in parameters:
-                        parameters = parameters.copy()
-                        del parameters["$schema"]
+                    if isinstance(parameters, dict):
+                        parameters = _sanitize_gemini_schema(parameters)
                     if parameters is not None:
                         declaration["parameters"] = parameters
                     declaration = {k: v for k, v in declaration.items() if v is not None}
